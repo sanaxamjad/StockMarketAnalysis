@@ -1,5 +1,6 @@
 
 import json
+import re
 import sqlite3
 from pathlib import Path
 
@@ -29,16 +30,20 @@ st.set_page_config(
 
 ROOT = Path(__file__).resolve().parent
 
-with open(ROOT / "alert_config.json") as file:
-    CONFIG = json.load(file)
+try:
+    with open(ROOT / "alert_config.json") as file:
+        CONFIG = json.load(file)
+except (OSError, json.JSONDecodeError):
+    CONFIG = {}
 
-WATCHLIST = CONFIG.get(
-    "watchlist",
-    ["NVDA", "CRDO", "VOO", "AAPL", "MSFT", "AMD"],
-)
+WATCHLIST = CONFIG.get("watchlist", [
+    "NVDA", "CRDO", "VOO", "AAPL", "MSFT", "AMD"
+])
+
+# Accept common Yahoo Finance ticker formats.
+TICKER_PATTERN = re.compile(r"^[A-Z0-9^][A-Z0-9.^=-]{0,19}$")
 
 BG = "#0B1016"
-PANEL = "#17212C"
 GREEN = "#29D99A"
 RED = "#FF6173"
 AMBER = "#F4BE62"
@@ -155,10 +160,6 @@ def load_news(symbol):
 
 @st.cache_resource(show_spinner="Loading financial AI...")
 def load_finbert():
-    """
-    Downloads FinBERT once and reuses it.
-    No API key or paid service required.
-    """
     from transformers import pipeline
 
     return pipeline(
@@ -170,10 +171,6 @@ def load_finbert():
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def analyze_headlines(titles):
-    """
-    Classify headlines as positive,
-    negative, or neutral using FinBERT.
-    """
 
     if not titles:
         return None
@@ -195,10 +192,7 @@ def analyze_headlines(titles):
 
     analyzed = []
 
-    for title, prediction in zip(
-        titles,
-        predictions,
-    ):
+    for title, prediction in zip(titles, predictions):
         label = prediction["label"].lower()
         confidence = float(prediction["score"])
 
@@ -243,8 +237,9 @@ def analyze_headlines(titles):
 
 
 def news_assessment(articles):
+
     if not articles:
-        return None, "No headlines available."
+        return None, "No recent headlines available."
 
     titles = tuple(
         str(article.get("title", "")).strip()
@@ -265,20 +260,10 @@ def news_assessment(articles):
 
 
 # ============================================================
-# COMBINED BUY / HOLD / SELL RESEARCH SIGNAL
+# COMBINED RESEARCH SIGNAL
 # ============================================================
 
 def make_signal(info, news_result):
-    """
-    Technical score: 0-4 points.
-
-    FinBERT sentiment adjustment:
-      Positive: +1
-      Neutral:   0
-      Negative: -1
-
-    Research signal, not investment advice.
-    """
 
     technical_score = int(info["score"])
     rsi = float(info["rsi"])
@@ -288,61 +273,46 @@ def make_signal(info, news_result):
         news_label = "Unavailable"
     else:
         news_label = news_result["direction"]
-
         adjustment = {
             "POSITIVE": 1,
             "NEUTRAL": 0,
             "NEGATIVE": -1,
         }[news_label]
 
-    total = max(
-        0,
-        min(5, technical_score + adjustment),
-    )
+    total = max(0, min(5, technical_score + adjustment))
 
     if total >= 3 and rsi < 70:
         label = "BUY"
         color = GREEN
-
     elif total <= 1:
         label = "SELL"
         color = RED
-
     else:
         label = "HOLD"
         color = AMBER
 
     if news_result is None:
         explanation = (
-            "This assessment uses technical "
-            "indicators only because AI news "
-            "analysis is unavailable."
+            "Technical-only research signal. "
+            "Financial AI news analysis is unavailable."
         )
-
     elif label == "BUY":
         explanation = (
-            "The combined technical and headline "
-            "sentiment score is favorable. "
-            "Review valuation, fundamentals, "
-            "and company-specific risks before "
-            "considering a purchase."
+            "Technical indicators and recent headline "
+            "sentiment suggest a favorable setup. "
+            "Review valuation and company risks before buying."
         )
-
     elif label == "SELL":
         explanation = (
-            "The combined indicators suggest "
-            "a weak setup. Review the company's "
-            "fundamentals and your investment "
-            "horizon before changing a position."
+            "The combined indicators suggest weakness. "
+            "Review fundamentals and your investment horizon "
+            "before changing a position."
         )
-
     else:
         explanation = (
-            "The combined indicators are mixed "
-            "or momentum may be stretched. "
-            "Monitoring further developments "
-            "may be more useful than relying "
-            "on a directional signal."
+            "The indicators are mixed or momentum is "
+            "stretched. Consider monitoring developments "
+            "before making a decision."
         )
 
     return {
@@ -356,11 +326,7 @@ def make_signal(info, news_result):
 
 
 def movement_color(value):
-    if value > 0:
-        return GREEN
-    if value < 0:
-        return RED
-    return AMBER
+    return GREEN if value > 0 else RED if value < 0 else AMBER
 
 
 # ============================================================
@@ -368,10 +334,9 @@ def movement_color(value):
 # ============================================================
 
 def price_chart(df):
-    close = df["Close"].astype(float)
 
-    positive = close.iloc[-1] >= close.iloc[0]
-    color = GREEN if positive else RED
+    close = df["Close"].astype(float)
+    color = GREEN if close.iloc[-1] >= close.iloc[0] else RED
 
     fig = go.Figure()
 
@@ -380,10 +345,7 @@ def price_chart(df):
             x=df.index,
             y=close,
             mode="lines",
-            line=dict(
-                color=color,
-                width=3,
-            ),
+            line=dict(color=color, width=3),
             hovertemplate=(
                 "%{x|%b %d, %Y}"
                 "<br>$%{y:,.2f}"
@@ -397,18 +359,10 @@ def price_chart(df):
         paper_bgcolor=BG,
         plot_bgcolor=BG,
         font=dict(color=MUTED),
-        margin=dict(
-            l=0,
-            r=8,
-            t=10,
-            b=8,
-        ),
+        margin=dict(l=0, r=8, t=10, b=8),
         showlegend=False,
         hovermode="x unified",
-        xaxis=dict(
-            showgrid=False,
-            zeroline=False,
-        ),
+        xaxis=dict(showgrid=False, zeroline=False),
         yaxis=dict(
             showgrid=True,
             gridcolor="#273443",
@@ -422,6 +376,7 @@ def price_chart(df):
 
 
 def comparison_chart(df):
+
     fig = go.Figure()
 
     for i, ticker in enumerate(df.columns):
@@ -432,10 +387,7 @@ def comparison_chart(df):
                 x=df.index,
                 y=df[ticker],
                 name=ticker,
-                line=dict(
-                    color=color,
-                    width=3,
-                ),
+                line=dict(color=color, width=3),
             )
         )
 
@@ -443,7 +395,7 @@ def comparison_chart(df):
         y=100,
         line_dash="dot",
         line_color=MUTED,
-        opacity=.5,
+        opacity=0.5,
     )
 
     fig.update_layout(
@@ -451,13 +403,8 @@ def comparison_chart(df):
         paper_bgcolor=BG,
         plot_bgcolor=BG,
         font=dict(color=MUTED),
-        margin=dict(
-            l=0, r=0, t=25, b=0
-        ),
-        legend=dict(
-            orientation="h",
-            y=1.15,
-        ),
+        margin=dict(l=0, r=0, t=25, b=0),
+        legend=dict(orientation="h", y=1.15),
         xaxis=dict(showgrid=False),
         yaxis=dict(gridcolor="#273443"),
     )
@@ -470,9 +417,8 @@ def comparison_chart(df):
 # ============================================================
 
 def journal_db():
-    conn = sqlite3.connect(
-        ROOT / "market_journal.db"
-    )
+
+    conn = sqlite3.connect(ROOT / "market_journal.db")
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS journal (
@@ -490,7 +436,7 @@ def journal_db():
 
 
 # ============================================================
-# HEADER
+# HEADER + SEARCH ANY STOCK
 # ============================================================
 
 st.title("📈 Market Intelligence")
@@ -506,10 +452,27 @@ left, right = st.columns(
 )
 
 with left:
-    symbol = st.selectbox(
-        "Choose a stock",
-        WATCHLIST,
-    )
+
+    search_col, watch_col = st.columns([2, 1])
+
+    with search_col:
+        search = st.text_input(
+            "Search any stock ticker",
+            placeholder="TSLA, PLTR, AMZN, GOOGL...",
+            value="",
+            help=(
+                "Enter a Yahoo Finance ticker symbol. "
+                "Examples: TSLA, BRK-B, VOO, 7203.T."
+            ),
+        ).strip().upper()
+
+    with watch_col:
+        quick_pick = st.selectbox(
+            "Your watchlist",
+            WATCHLIST,
+        )
+
+    symbol = search if search else quick_pick
 
 with right:
     refresh = st.button(
@@ -524,6 +487,12 @@ if refresh:
     load_news.clear()
     analyze_headlines.clear()
 
+if not TICKER_PATTERN.fullmatch(symbol):
+    st.error(
+        "Enter a valid ticker symbol, such as "
+        "TSLA, AAPL, BRK-B, or 7203.T."
+    )
+    st.stop()
 
 # ============================================================
 # MAIN DASHBOARD
@@ -539,7 +508,8 @@ def dashboard(ticker):
 
             if daily is None or daily.empty:
                 st.warning(
-                    "Market data unavailable."
+                    f"No market data found for {ticker}. "
+                    "Check the ticker symbol and try again."
                 )
                 return
 
@@ -547,30 +517,24 @@ def dashboard(ticker):
 
             if info is None:
                 st.warning(
-                    "Insufficient price history."
+                    f"Not enough historical data for {ticker} "
+                    "to calculate technical indicators."
                 )
                 return
 
             latest = load_latest(ticker)
 
             if latest is None:
-                latest = get_latest_bar(
-                    ticker,
-                    daily,
-                )
+                latest = get_latest_bar(ticker, daily)
 
             if latest is None:
-                st.warning(
-                    "Latest price unavailable."
-                )
+                st.warning("Latest price unavailable.")
                 return
 
             checked_at = now_central()
 
     except Exception as exc:
-        st.error(
-            f"Market data error: {exc}"
-        )
+        st.error(f"Market data error: {exc}")
         return
 
     price = float(latest["price"])
@@ -581,17 +545,11 @@ def dashboard(ticker):
     except Exception:
         articles = []
 
-    news_result, news_error = news_assessment(
-        articles
-    )
-
-    signal = make_signal(
-        info,
-        news_result,
-    )
+    news_result, news_error = news_assessment(articles)
+    signal = make_signal(info, news_result)
 
     # ========================================================
-    # SMALL REFRESH STATUS LINE AT TOP
+    # SMALL REFRESH TIMESTAMPS AT TOP
     # ========================================================
 
     dashboard_time = format_central(checked_at)
@@ -622,17 +580,9 @@ def dashboard(ticker):
 
     with home:
 
-        # ----------------------------------------------------
-        # PRICE
-        # ----------------------------------------------------
+        st.caption(f"{ticker} · Latest observed price")
 
-        st.caption(
-            f"{ticker} · Latest observed price"
-        )
-
-        st.markdown(
-            f"# ${price:,.2f}"
-        )
+        st.markdown(f"# ${price:,.2f}")
 
         arrow = (
             "▲" if month_change > 0
@@ -655,35 +605,19 @@ def dashboard(ticker):
         st.divider()
 
         # ----------------------------------------------------
-        # COMBINED SIGNAL
+        # BUY / HOLD / SELL
         # ----------------------------------------------------
 
-        st.subheader(
-            "BUY / HOLD / SELL"
-        )
+        st.subheader("BUY / HOLD / SELL")
 
         if signal["label"] == "BUY":
-            st.success(
-                "🟢 BUY · Favorable research setup"
-            )
-
+            st.success("🟢 BUY · Favorable research setup")
         elif signal["label"] == "SELL":
-            st.error(
-                "🔴 SELL · Weak research setup"
-            )
-
+            st.error("🔴 SELL · Weak research setup")
         else:
-            st.warning(
-                "🟡 HOLD · Mixed research setup"
-            )
+            st.warning("🟡 HOLD · Mixed research setup")
 
-        st.write(
-            signal["explanation"]
-        )
-
-        # ----------------------------------------------------
-        # CORE INDICATORS
-        # ----------------------------------------------------
+        st.write(signal["explanation"])
 
         a, b = st.columns(2)
 
@@ -700,12 +634,10 @@ def dashboard(ticker):
             )
 
         # ----------------------------------------------------
-        # HEADLINE SUMMARY
+        # HEADLINE ANALYSIS
         # ----------------------------------------------------
 
-        st.subheader(
-            "What the headlines suggest"
-        )
+        st.subheader("What the headlines suggest")
 
         if news_result:
 
@@ -713,20 +645,16 @@ def dashboard(ticker):
 
             if direction == "POSITIVE":
                 st.success(
-                    "Recent headline wording "
-                    "leans positive."
+                    "Recent financial headlines lean positive."
                 )
-
             elif direction == "NEGATIVE":
                 st.error(
-                    "Recent headline wording "
-                    "leans negative."
+                    "Recent financial headlines lean negative."
                 )
-
             else:
                 st.info(
-                    "Recent headline wording "
-                    "is mixed or neutral."
+                    "Recent financial headlines are mixed "
+                    "or neutral."
                 )
 
             st.caption(
@@ -753,8 +681,7 @@ def dashboard(ticker):
 
         else:
             st.info(
-                news_error
-                or "News analysis unavailable."
+                news_error or "News analysis unavailable."
             )
 
         # ----------------------------------------------------
@@ -786,18 +713,12 @@ def dashboard(ticker):
             st.plotly_chart(
                 price_chart(selected_data),
                 use_container_width=True,
-                config={
-                    "displayModeBar": False
-                },
+                config={"displayModeBar": False},
             )
 
             period_change = (
-                float(
-                    selected_data["Close"].iloc[-1]
-                )
-                / float(
-                    selected_data["Close"].iloc[0]
-                )
+                float(selected_data["Close"].iloc[-1])
+                / float(selected_data["Close"].iloc[0])
                 - 1
             ) * 100
 
@@ -815,10 +736,7 @@ def dashboard(ticker):
         a, b = st.columns(2)
 
         with a:
-            st.metric(
-                "RSI",
-                f"{info['rsi']:.1f}",
-            )
+            st.metric("RSI", f"{info['rsi']:.1f}")
 
         with b:
             st.metric(
@@ -827,12 +745,11 @@ def dashboard(ticker):
             )
 
         st.caption(
-            "Research signals use technical "
-            "indicators and headline sentiment. "
-            "They do not measure fair value "
-            "or guarantee returns. "
-            "The dashboard checks approximately "
-            "every five minutes while open."
+            "Research signals use technical indicators "
+            "and headline sentiment. They do not measure "
+            "fair value or guarantee returns. "
+            "The dashboard checks approximately every "
+            "five minutes while open."
         )
 
     # ========================================================
@@ -844,8 +761,7 @@ def dashboard(ticker):
         st.subheader("Your watchlist")
 
         st.caption(
-            "Compare stock prices and "
-            "technical research signals."
+            "Compare prices and technical research signals."
         )
 
         rows = []
@@ -853,24 +769,17 @@ def dashboard(ticker):
         for stock in WATCHLIST:
 
             try:
-                result = analyze(
-                    load_prices(stock)
-                )
+                result = analyze(load_prices(stock))
 
                 if result is None:
                     continue
 
-                stock_signal = make_signal(
-                    result,
-                    None,
-                )
+                stock_signal = make_signal(result, None)
 
                 rows.append({
                     "Stock": stock,
                     "Price": result["price"],
-                    "1M change": result[
-                        "month_change"
-                    ],
+                    "1M change": result["month_change"],
                     "Signal": stock_signal["label"],
                     "Score": result["score"],
                 })
@@ -880,9 +789,7 @@ def dashboard(ticker):
 
         if rows:
 
-            table = pd.DataFrame(rows)
-
-            table = table.sort_values(
+            table = pd.DataFrame(rows).sort_values(
                 "1M change",
                 ascending=False,
             )
@@ -930,7 +837,7 @@ def dashboard(ticker):
 
             st.caption(
                 "Watchlist signals are technical-only. "
-                "Select a stock on Home to include "
+                "Select or search a stock to include "
                 "FinBERT headline sentiment."
             )
 
@@ -960,17 +867,12 @@ def dashboard(ticker):
             second = st.selectbox(
                 "Stock B",
                 WATCHLIST,
-                index=min(
-                    1,
-                    len(WATCHLIST) - 1,
-                ),
+                index=min(1, len(WATCHLIST) - 1),
                 key="second_stock",
             )
 
         if first == second:
-            st.info(
-                "Select two different stocks."
-            )
+            st.info("Select two different stocks.")
 
         else:
             try:
@@ -983,27 +885,20 @@ def dashboard(ticker):
                 )["Close"].rename(second)
 
                 combined = pd.concat(
-                    [
-                        first_close,
-                        second_close,
-                    ],
+                    [first_close, second_close],
                     axis=1,
                 ).dropna().tail(126)
 
                 if len(combined) > 1:
 
                     normalized = (
-                        combined.div(
-                            combined.iloc[0]
-                        ) * 100
+                        combined.div(combined.iloc[0]) * 100
                     )
 
                     st.plotly_chart(
                         comparison_chart(normalized),
                         use_container_width=True,
-                        config={
-                            "displayModeBar": False
-                        },
+                        config={"displayModeBar": False},
                     )
 
                     st.caption(
@@ -1012,9 +907,7 @@ def dashboard(ticker):
                     )
 
             except Exception:
-                st.info(
-                    "Comparison data unavailable."
-                )
+                st.info("Comparison data unavailable.")
 
     # ========================================================
     # RESEARCH
@@ -1022,17 +915,13 @@ def dashboard(ticker):
 
     with research:
 
-        st.subheader(
-            f"{ticker} · Detailed research"
-        )
+        st.subheader(f"{ticker} · Detailed research")
 
         # ----------------------------------------------------
         # TECHNICAL INDICATORS
         # ----------------------------------------------------
 
-        st.subheader(
-            "Technical indicator breakdown"
-        )
+        st.subheader("Technical indicator breakdown")
 
         labels = [
             "Price above 20-day average",
@@ -1045,36 +934,25 @@ def dashboard(ticker):
             labels,
             info["checks"],
         ):
-
             if passed:
-                st.success(
-                    f"✓ {label}"
-                )
+                st.success(f"✓ {label}")
             else:
-                st.error(
-                    f"— {label} not met"
-                )
+                st.error(f"— {label} not met")
 
         # ----------------------------------------------------
-        # AI HEADLINE BREAKDOWN
+        # FINBERT HEADLINE ANALYSIS
         # ----------------------------------------------------
 
-        st.subheader(
-            "AI-analyzed financial headlines"
-        )
+        st.subheader("AI-analyzed financial headlines")
 
         analyzed_lookup = {}
 
         if news_result:
             for item in news_result["articles"]:
-                analyzed_lookup[
-                    item["title"]
-                ] = item
+                analyzed_lookup[item["title"]] = item
 
         if not articles:
-            st.info(
-                "No recent headlines available."
-            )
+            st.info("No recent headlines available.")
 
         for article in articles[:10]:
 
@@ -1085,34 +963,23 @@ def dashboard(ticker):
 
             with st.container(border=True):
 
-                st.markdown(
-                    f"**{title}**"
-                )
+                st.markdown(f"**{title}**")
 
-                result = analyzed_lookup.get(
-                    title
-                )
+                result = analyzed_lookup.get(title)
 
                 if result:
 
-                    sentiment = result[
-                        "sentiment"
-                    ]
-
-                    confidence = result[
-                        "confidence"
-                    ]
+                    sentiment = result["sentiment"]
+                    confidence = result["confidence"]
 
                     if sentiment == "positive":
                         st.success(
                             "🟢 Positive headline sentiment"
                         )
-
                     elif sentiment == "negative":
                         st.error(
                             "🔴 Negative headline sentiment"
                         )
-
                     else:
                         st.info(
                             "🟡 Neutral headline sentiment"
@@ -1121,14 +988,12 @@ def dashboard(ticker):
                     st.caption(
                         "Model classification score: "
                         f"{confidence:.0%}. "
-                        "Not a probability of "
+                        "Not a probability of future "
                         "stock price movement."
                     )
 
                 if article.get("published"):
-                    st.caption(
-                        article["published"]
-                    )
+                    st.caption(article["published"])
 
                 if article.get("url"):
                     st.link_button(
@@ -1137,19 +1002,16 @@ def dashboard(ticker):
                     )
 
         st.caption(
-            "FinBERT analyzes headline text, "
-            "not full article bodies. "
-            "Sentiment may miss nuance, "
-            "duplicates, or misleading headlines."
+            "FinBERT analyzes headline text, not full "
+            "article bodies. Sentiment may miss nuance "
+            "or misleading headlines."
         )
 
         # ----------------------------------------------------
         # INVESTMENT SIMULATOR
         # ----------------------------------------------------
 
-        st.subheader(
-            "Investment simulator"
-        )
+        st.subheader("Investment simulator")
 
         amount = st.number_input(
             "Hypothetical investment ($)",
@@ -1165,10 +1027,7 @@ def dashboard(ticker):
             10,
         )
 
-        future = amount * (
-            1 + move / 100
-        )
-
+        future = amount * (1 + move / 100)
         gain = future - amount
 
         a, b = st.columns(2)
@@ -1192,12 +1051,10 @@ def dashboard(ticker):
         )
 
         # ----------------------------------------------------
-        # JOURNAL
+        # RESEARCH JOURNAL
         # ----------------------------------------------------
 
-        st.subheader(
-            "Research journal"
-        )
+        st.subheader("Research journal")
 
         with st.form("journal_form"):
 
@@ -1211,25 +1068,18 @@ def dashboard(ticker):
                 ],
             )
 
-            thesis = st.text_area(
-                "Your research notes"
-            )
+            thesis = st.text_area("Your research notes")
 
-            save = st.form_submit_button(
-                "Save note"
-            )
+            save = st.form_submit_button("Save note")
 
         if save:
 
             if not thesis.strip():
-                st.warning(
-                    "Write a note first."
-                )
+                st.warning("Write a note first.")
 
             else:
                 try:
                     with journal_db() as conn:
-
                         conn.execute(
                             """
                             INSERT INTO journal
@@ -1246,9 +1096,7 @@ def dashboard(ticker):
                             ),
                         )
 
-                    st.success(
-                        "Research note saved."
-                    )
+                    st.success("Research note saved.")
 
                 except Exception as exc:
                     st.error(
@@ -1257,7 +1105,6 @@ def dashboard(ticker):
 
         try:
             with journal_db() as conn:
-
                 notes = pd.read_sql_query(
                     """
                     SELECT
@@ -1289,14 +1136,11 @@ def dashboard(ticker):
                 )
 
         except Exception:
-            st.info(
-                "Journal unavailable."
-            )
+            st.info("Journal unavailable.")
 
         st.caption(
-            "Research journal storage on "
-            "Streamlit Community Cloud may "
-            "reset after an app restart. "
+            "Research journal storage on Streamlit "
+            "Community Cloud may reset after a restart. "
             "Export notes regularly."
         )
 
@@ -1331,8 +1175,6 @@ with st.expander("Automated email alerts"):
 st.divider()
 
 st.caption(
-    "Market Intelligence · "
-    "Free financial AI · "
-    "Educational research only · "
-    "No automatic trading"
+    "Market Intelligence · Free financial AI · "
+    "Educational research only · No automatic trading"
 )
