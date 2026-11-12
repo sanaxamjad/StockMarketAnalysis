@@ -1,5 +1,4 @@
 
-import html
 import json
 import sqlite3
 from pathlib import Path
@@ -17,9 +16,9 @@ from market_core import (
     now_central,
 )
 
-# ============================================================
-# PAGE SETTINGS
-# ============================================================
+# ==========================================================
+# SETTINGS
+# ==========================================================
 
 st.set_page_config(
     page_title="Market Intelligence",
@@ -30,85 +29,32 @@ st.set_page_config(
 
 ROOT = Path(__file__).resolve().parent
 
-CONFIG = json.loads(
-    (ROOT / "alert_config.json").read_text()
-)
+with open(ROOT / "alert_config.json") as f:
+    CONFIG = json.load(f)
 
 WATCHLIST = CONFIG.get(
     "watchlist",
     ["NVDA", "CRDO", "VOO", "AAPL", "MSFT", "AMD"],
 )
 
-# ============================================================
-# COLOR SYSTEM
-# ============================================================
-
-BG = "#0B0F14"
-CARD = "#151C24"
-CARD_LIGHT = "#1B2530"
-BORDER = "#28333F"
-
-WHITE = "#F5F7FA"
-MUTED = "#95A2B2"
-
-GREEN = "#2DDCA0"
+BG = "#0B1016"
+CARD = "#18212B"
+GREEN = "#25D695"
 RED = "#FF596B"
-AMBER = "#F4BC67"
-LIME = "#C5FA5F"
-BLUE = "#75AFFF"
+AMBER = "#FFC166"
+WHITE = "#F5F7FA"
+MUTED = "#AAB7C5"
+BLUE = "#73A9FF"
 
-
-def movement_color(value):
-    if value > 0:
-        return GREEN
-    if value < 0:
-        return RED
-    return MUTED
-
-
-def outlook_color(signal):
-    return {
-        "RESEARCH ENTRY": GREEN,
-        "WATCH": AMBER,
-        "REVIEW RISK": RED,
-    }.get(signal, MUTED)
-
-
-def outlook_label(signal):
-    return {
-        "RESEARCH ENTRY": "Positive trend",
-        "WATCH": "Mixed signals",
-        "REVIEW RISK": "Weak trend",
-    }.get(signal, "Unavailable")
-
-
-def safe(text):
-    return html.escape(str(text))
-
-
-def metric_card(label, value, color=WHITE, detail=""):
-    return f"""
-    <div class="mini-card">
-        <div class="mini-label">{safe(label)}</div>
-        <div class="mini-value"
-             style="color:{color}">
-            {safe(value)}
-        </div>
-        <div class="mini-detail">{safe(detail)}</div>
-    </div>
-    """
-
-
-# ============================================================
-# ROBINHOOD-INSPIRED STYLING
-# ============================================================
+# ==========================================================
+# STYLE
+# ==========================================================
 
 st.markdown("""
 <style>
-
-html, body, .stApp,
+.stApp,
 [data-testid="stAppViewContainer"] {
-    background: #0B0F14 !important;
+    background: #0B1016;
     color: #F5F7FA;
 }
 
@@ -117,328 +63,227 @@ html, body, .stApp,
 }
 
 .block-container {
-    max-width: 1080px;
-    padding: 1.2rem 1.1rem 4rem;
+    max-width: 1050px;
+    padding-top: 1.1rem;
+    padding-bottom: 4rem;
 }
 
 h1, h2, h3 {
-    letter-spacing: -0.035em;
-}
-
-h2 {
-    font-size: 1.45rem !important;
-}
-
-h3 {
-    font-size: 1.12rem !important;
-}
-
-/* BRAND HEADER */
-
-.brand {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 12px;
-}
-
-.brand-logo {
-    width: 40px;
-    height: 40px;
-    border-radius: 13px;
-    background: #C5FA5F;
-    color: #0B0F14;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 23px;
-    font-weight: 900;
-}
-
-.brand-title {
-    color: #F5F7FA;
-    font-size: 1.13rem;
-    font-weight: 800;
     letter-spacing: -.035em;
 }
 
-.brand-subtitle {
-    color: #95A2B2;
-    font-size: .69rem;
-    letter-spacing: .07em;
-}
-
-/* PRICE HERO */
-
-.price-section {
-    padding: 12px 0 7px;
-}
-
-.stock-symbol {
-    color: #95A2B2;
-    font-size: .92rem;
-    font-weight: 600;
-}
-
-.stock-price {
-    color: #F5F7FA;
-    font-size: clamp(2.5rem, 6vw, 4.2rem);
-    font-weight: 750;
-    line-height: 1.15;
-    letter-spacing: -.055em;
-    margin: 6px 0;
-}
-
-.stock-change {
-    font-size: 1.02rem;
-    font-weight: 750;
-    margin-top: 7px;
-}
-
-.stock-period {
-    color: #95A2B2;
-    font-size: .86rem;
-    margin-left: 8px;
-}
-
-/* SIGNAL LABEL */
-
-.signal-pill {
-    display: inline-block;
-    padding: 8px 13px;
-    border-radius: 999px;
-    font-size: .78rem;
-    font-weight: 750;
-    margin-top: 12px;
-}
-
-/* QUICK STAT CARDS */
-
-.mini-card {
-    background: #151C24;
-    border: 1px solid #28333F;
-    border-radius: 16px;
-    padding: 17px;
-    min-height: 110px;
-    margin-bottom: 6px;
-}
-
-.mini-label {
-    color: #95A2B2;
-    font-size: .78rem;
-    margin-bottom: 10px;
-}
-
-.mini-value {
-    font-size: 1.16rem;
-    font-weight: 800;
-    letter-spacing: -.025em;
-}
-
-.mini-detail {
-    color: #8493A5;
-    font-size: .72rem;
-    margin-top: 7px;
-}
-
-/* SECTION HEADERS */
-
-.section-heading {
-    color: #F5F7FA;
-    font-size: 1.12rem;
-    font-weight: 750;
-    margin: 24px 0 14px;
-}
-
-/* INDICATOR ROW */
-
-.indicator {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 14px 2px;
-    border-bottom: 1px solid #28333F;
-    gap: 14px;
-}
-
-.indicator-name {
-    color: #DCE4ED;
-    font-size: .89rem;
-}
-
-.indicator-status {
-    font-size: .82rem;
-    font-weight: 750;
-    white-space: nowrap;
-}
-
-/* TIMESTAMPS */
-
-.data-footer {
-    border-top: 1px solid #28333F;
-    padding-top: 13px;
-    margin-top: 18px;
-    color: #95A2B2;
-    font-size: .76rem;
-    line-height: 1.8;
-}
-
-/* STREAMLIT CONTROLS */
-
-.stButton button[kind="primary"] {
-    background: #C5FA5F !important;
-    color: #0B0F14 !important;
-    border: none !important;
-    font-weight: 800;
-}
-
-.stButton button {
-    border-radius: 12px !important;
-    min-height: 40px;
-}
-
-.stButton button[kind="secondary"] {
-    background: #151C24 !important;
-    border: 1px solid #28333F !important;
-    color: #E9F0F7 !important;
-}
-
-[data-testid="stSelectbox"] > div > div {
-    border-radius: 12px;
-}
-
 [data-testid="stMetric"] {
-    background: #151C24;
-    border: 1px solid #28333F;
-    border-radius: 15px;
-    padding: 14px;
+    background: #18212B;
+    border: 1px solid #293747;
+    border-radius: 16px;
+    padding: 15px 17px;
+}
+
+[data-testid="stMetricLabel"] {
+    color: #AAB7C5;
 }
 
 [data-testid="stMetricValue"] {
-    font-size: 1.35rem;
+    color: #F5F7FA;
+}
+
+[data-testid="stMetricDelta"] {
+    font-weight: 750;
+}
+
+[data-testid="stVerticalBlockBorderWrapper"] {
+    border-radius: 16px;
+}
+
+.stButton button {
+    border-radius: 12px;
+    min-height: 42px;
+}
+
+.stButton button[kind="primary"] {
+    background: #C5FA5F;
+    border-color: #C5FA5F;
+    color: #0B1016;
+    font-weight: 800;
 }
 
 [data-testid="stTabs"] [data-baseweb="tab-list"] {
-    gap: 22px;
-    border-bottom: 1px solid #28333F;
+    gap: 16px;
     overflow-x: auto;
-    scrollbar-width: none;
 }
 
 [data-testid="stTabs"] button {
     white-space: nowrap;
-    font-weight: 650;
+    font-weight: 700;
 }
 
-[data-testid="stTabs"] [aria-selected="true"] {
-    color: #C5FA5F !important;
+[data-testid="stTabs"]
+[data-baseweb="tab-highlight"] {
+    background: #C5FA5F;
 }
 
-[data-testid="stTabs"] [data-baseweb="tab-highlight"] {
-    background: #C5FA5F !important;
+div[data-testid="stRadio"] label {
+    font-size: .85rem;
 }
-
-[data-testid="stDataFrame"] {
-    border-radius: 12px;
-    overflow: hidden;
-}
-
-hr {
-    border-color: #28333F;
-}
-
-/* MOBILE */
 
 @media (max-width: 640px) {
-
     .block-container {
-        padding: .7rem .8rem 4rem;
+        padding: .7rem .7rem 3rem;
     }
 
-    .stock-price {
-        font-size: 2.8rem;
-    }
-
-    .brand-title {
-        font-size: 1rem;
-    }
-
-    .mini-card {
+    [data-testid="stMetric"] {
         padding: 12px;
-        min-height: 102px;
     }
 
-    .mini-value {
-        font-size: 1rem;
+    [data-testid="stMetricValue"] {
+        font-size: 1.3rem;
     }
 
-    .mini-label {
-        font-size: .72rem;
-    }
-
-    .mini-detail {
-        font-size: .68rem;
-    }
-
-    .indicator-name {
-        font-size: .79rem;
-    }
-
-    .indicator-status {
-        font-size: .73rem;
-    }
-
-    [data-testid="stTabs"] [data-baseweb="tab-list"] {
-        gap: 12px;
+    h1 {
+        font-size: 1.7rem;
     }
 }
-
 </style>
 """, unsafe_allow_html=True)
 
 
-# ============================================================
-# CACHED DATA
-# ============================================================
+# ==========================================================
+# DATA
+# ==========================================================
 
 @st.cache_data(ttl=300, show_spinner=False)
-def cached_prices(symbol, period="2y", interval="1d"):
-    return get_prices(
-        symbol,
-        period=period,
-        interval=interval,
-    )
+def load_prices(symbol):
+    return get_prices(symbol)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def cached_observation(symbol):
+def load_observation(symbol):
     return get_latest_bar(symbol)
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def cached_news(symbol):
+def load_news(symbol):
     return get_news(symbol)
 
 
-# ============================================================
-# CHARTS
-# ============================================================
+# ==========================================================
+# BUY / HOLD / SELL TECHNICAL MODEL
+# ==========================================================
 
-def price_chart(df, change):
-    color = movement_color(change)
+def recommendation(info):
+    """
+    Educational technical signal.
+
+    BUY: At least 3 positive indicators,
+         with RSI below 70.
+
+    SELL: At most 1 positive indicator.
+
+    HOLD: Mixed indicators or overbought RSI.
+
+    These are technical classifications,
+    not personalized trading advice.
+    """
+
+    score = int(info["score"])
+    rsi = float(info["rsi"])
+
+    if score >= 3 and rsi < 70:
+        label = "BUY"
+        color = GREEN
+        explanation = (
+            "Technical momentum is favorable. "
+            "The price trend has several positive "
+            "indicators, but check valuation, "
+            "earnings and your risk tolerance "
+            "before considering a purchase."
+        )
+
+    elif score <= 1:
+        label = "SELL"
+        color = RED
+        explanation = (
+            "Technical momentum is weak. "
+            "Several trend indicators are negative. "
+            "This is a prompt to review risk, "
+            "not an instruction to liquidate "
+            "a long-term investment."
+        )
+
+    else:
+        label = "HOLD"
+        color = AMBER
+
+        if rsi >= 70:
+            explanation = (
+                "The stock may be overbought "
+                "based on RSI. Momentum could "
+                "continue, but buying after a "
+                "strong run carries additional risk."
+            )
+        else:
+            explanation = (
+                "Technical signals are mixed. "
+                "There is no strong directional "
+                "signal from this model."
+            )
+
+    return {
+        "label": label,
+        "color": color,
+        "explanation": explanation,
+        "score": score,
+    }
+
+
+def signal_strength(info):
+    """
+    Measures how many of the four
+    technical checks agree.
+
+    Not a probability of success.
+    """
+    score = int(info["score"])
+
+    if score in (0, 4):
+        return "Strong alignment"
+    if score in (1, 3):
+        return "Moderate alignment"
+    return "Mixed indicators"
+
+
+def change_color(value):
+    if value > 0:
+        return GREEN
+    if value < 0:
+        return RED
+    return AMBER
+
+
+# ==========================================================
+# PRICE CHART
+# ==========================================================
+
+def create_price_chart(df):
+    close = df["Close"].astype(float)
+
+    first = float(close.iloc[0])
+    last = float(close.iloc[-1])
+
+    color = GREEN if last >= first else RED
 
     fig = go.Figure()
 
     fig.add_trace(
         go.Scatter(
             x=df.index,
-            y=df["Close"],
+            y=close,
             mode="lines",
-            name="Price",
             line=dict(
                 color=color,
                 width=3,
             ),
+            name="Price",
             hovertemplate=(
                 "%{x|%b %d, %Y}"
                 "<br>$%{y:,.2f}"
@@ -448,90 +293,92 @@ def price_chart(df, change):
     )
 
     fig.update_layout(
-        height=350,
+        height=310,
         paper_bgcolor=BG,
         plot_bgcolor=BG,
-        font=dict(color=MUTED),
+        font=dict(
+            color=MUTED,
+            size=12,
+        ),
         margin=dict(
-            l=0, r=8, t=10, b=5
+            l=0,
+            r=8,
+            t=8,
+            b=8,
         ),
         showlegend=False,
         hovermode="x unified",
         xaxis=dict(
             showgrid=False,
-            showline=False,
             zeroline=False,
         ),
         yaxis=dict(
             showgrid=True,
-            gridcolor="#202A35",
-            zeroline=False,
+            gridcolor="#263340",
             tickprefix="$",
             side="right",
+            zeroline=False,
         ),
     )
 
     return fig
 
 
-def comparison_chart(data):
+def create_comparison(df):
     fig = go.Figure()
 
-    colors = [GREEN, BLUE, AMBER, RED]
+    for i, ticker in enumerate(df.columns):
+        color = [GREEN, BLUE, AMBER, RED][i % 4]
 
-    for index, ticker in enumerate(data.columns):
         fig.add_trace(
             go.Scatter(
-                x=data.index,
-                y=data[ticker],
+                x=df.index,
+                y=df[ticker],
                 name=ticker,
-                mode="lines",
                 line=dict(
-                    color=colors[index % len(colors)],
-                    width=2.7,
+                    color=color,
+                    width=3,
                 ),
             )
         )
 
     fig.add_hline(
         y=100,
-        line_color="#64748B",
+        line_color=MUTED,
         line_dash="dot",
-        opacity=.55,
+        opacity=.5,
     )
 
     fig.update_layout(
-        height=340,
+        height=310,
         paper_bgcolor=BG,
         plot_bgcolor=BG,
         font=dict(color=MUTED),
         margin=dict(
-            l=0, r=0, t=25, b=5
+            l=0, r=0, t=25, b=0
         ),
         hovermode="x unified",
         legend=dict(
             orientation="h",
-            y=1.16,
+            y=1.15,
         ),
         xaxis=dict(showgrid=False),
-        yaxis=dict(
-            gridcolor="#202A35"
-        ),
+        yaxis=dict(gridcolor="#263340"),
     )
 
     return fig
 
 
-# ============================================================
-# JOURNAL
-# ============================================================
+# ==========================================================
+# RESEARCH JOURNAL
+# ==========================================================
 
-def journal_connection():
-    connection = sqlite3.connect(
+def journal_db():
+    conn = sqlite3.connect(
         ROOT / "market_journal.db"
     )
 
-    connection.execute("""
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS journal (
             id INTEGER PRIMARY KEY,
             created TEXT,
@@ -542,90 +389,86 @@ def journal_connection():
         )
     """)
 
-    connection.commit()
+    conn.commit()
+    return conn
 
-    return connection
 
-
-# ============================================================
+# ==========================================================
 # HEADER
-# ============================================================
+# ==========================================================
 
-st.markdown("""
-<div class="brand">
-    <div class="brand-logo">↗</div>
-    <div>
-        <div class="brand-title">
-            Market Intelligence
-        </div>
-        <div class="brand-subtitle">
-            YOUR PERSONAL MARKET DESK
-        </div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+st.title("📈 Market Intelligence")
 
+st.caption(
+    "Your personal market desk · "
+    "Simple signals. Clear research."
+)
 
-# ============================================================
-# STOCK SELECTOR
-# ============================================================
+# ==========================================================
+# STOCK SELECTION
+# ==========================================================
 
-selector_col, refresh_col = st.columns(
+left, right = st.columns(
     [4, 1],
     vertical_alignment="bottom",
 )
 
-with selector_col:
-    selected_stock = st.selectbox(
-        "Choose a stock",
+with left:
+    symbol = st.selectbox(
+        "Stock",
         WATCHLIST,
-        key="selected_stock",
     )
 
-with refresh_col:
-    refresh_requested = st.button(
+with right:
+    refresh = st.button(
         "↻ Refresh",
+        type="primary",
         use_container_width=True,
-        help="Fetch fresh market data",
     )
 
-if refresh_requested:
-    cached_prices.clear()
-    cached_observation.clear()
-    cached_news.clear()
+if refresh:
+    load_prices.clear()
+    load_observation.clear()
+    load_news.clear()
 
 
-# ============================================================
-# AUTOMATIC UPDATE
-# ============================================================
+# ==========================================================
+# MAIN DASHBOARD
+# ==========================================================
 
 @st.fragment(run_every=300)
-def market_dashboard(symbol):
+def dashboard(ticker):
 
     try:
-        with st.spinner("Loading market data..."):
+        with st.spinner("Checking market data..."):
+            daily = load_prices(ticker)
 
-            daily = cached_prices(symbol)
-            analysis = analyze(daily)
-
-            if analysis is None:
+            if daily is None or daily.empty:
                 st.warning(
-                    "Not enough price history "
-                    "for this stock."
+                    "No market data available."
                 )
                 return
 
-            latest = cached_observation(symbol)
+            info = analyze(daily)
+
+            if info is None:
+                st.warning(
+                    "Not enough history to calculate "
+                    "technical indicators."
+                )
+                return
+
+            latest = load_observation(ticker)
 
             if latest is None:
                 latest = get_latest_bar(
-                    symbol,
+                    ticker,
                     daily,
                 )
 
             if latest is None:
                 st.warning(
-                    "Latest market price unavailable."
+                    "Latest price unavailable."
                 )
                 return
 
@@ -633,13 +476,14 @@ def market_dashboard(symbol):
 
     except Exception as exc:
         st.error(
-            f"Market data unavailable: {exc}"
+            f"Market data could not load: {exc}"
         )
         return
 
-    # ========================================================
-    # THREE SIMPLE NAVIGATION TABS
-    # ========================================================
+    signal = recommendation(info)
+
+    price = float(latest["price"])
+    month_change = float(info["month_change"])
 
     home, discover, research = st.tabs([
         "Home",
@@ -647,377 +491,265 @@ def market_dashboard(symbol):
         "Research",
     ])
 
-    # ========================================================
+    # ======================================================
     # HOME
-    # ========================================================
+    # ======================================================
 
     with home:
 
-        price = latest["price"]
-        month_change = analysis["month_change"]
+        # --------------------------------------------------
+        # PRICE FIRST
+        # --------------------------------------------------
 
-        color = movement_color(month_change)
+        st.caption(f"{ticker} · Latest observed price")
 
-        if month_change > 0:
-            arrow = "↗"
-        elif month_change < 0:
-            arrow = "↘"
+        st.markdown(
+            f"## ${price:,.2f}"
+        )
+
+        change_symbol = (
+            "▲" if month_change > 0
+            else "▼" if month_change < 0
+            else "●"
+        )
+
+        st.markdown(
+            f":{'green' if month_change > 0 else 'red' if month_change < 0 else 'orange'}["
+            f"**{change_symbol} {month_change:+.2f}%**"
+            f"]  ·  Past month"
+        )
+
+        st.write("")
+
+        # --------------------------------------------------
+        # BUY / HOLD / SELL
+        # --------------------------------------------------
+
+        st.subheader("Technical signal")
+
+        if signal["label"] == "BUY":
+            st.success(
+                "🟢 BUY — Favorable technical setup",
+                icon="📈",
+            )
+
+        elif signal["label"] == "SELL":
+            st.error(
+                "🔴 SELL — Weak technical setup",
+                icon="📉",
+            )
+
         else:
-            arrow = "→"
+            st.warning(
+                "🟡 HOLD — Mixed technical setup",
+                icon="⚖️",
+            )
 
-        # ----------------------------------------------------
-        # LARGE PRICE HEADER
-        # ----------------------------------------------------
-
-        st.markdown(
-            f"""
-            <div class="price-section">
-                <div class="stock-symbol">
-                    {safe(symbol)}
-                </div>
-
-                <div class="stock-price">
-                    ${price:,.2f}
-                </div>
-
-                <div class="stock-change"
-                     style="color:{color}">
-                    {arrow} {month_change:+.2f}%
-                    <span class="stock-period">
-                        Past month
-                    </span>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
+        st.write(
+            signal["explanation"]
         )
 
-        # ----------------------------------------------------
-        # SIMPLE TREND LABEL
-        # ----------------------------------------------------
+        a, b = st.columns(2)
 
-        outlook = analysis["signal"]
-        outlook_text = outlook_label(outlook)
-        outlook_tint = outlook_color(outlook)
+        with a:
+            st.metric(
+                "Positive indicators",
+                f"{signal['score']} / 4",
+            )
 
-        st.markdown(
-            f"""
-            <div class="signal-pill" style="
-                color:{outlook_tint};
-                background:{outlook_tint}18;
-                border:1px solid {outlook_tint}55;
-            ">
-                ● {safe(outlook_text)}
-            </div>
-            """,
-            unsafe_allow_html=True,
+        with b:
+            st.metric(
+                "Signal alignment",
+                signal_strength(info),
+            )
+
+        st.caption(
+            "BUY, HOLD and SELL are automated "
+            "technical research labels, not "
+            "personalized investment advice. "
+            "Signal alignment is not a prediction "
+            "of future returns."
         )
 
-        # ----------------------------------------------------
-        # CHART RANGE
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # PRICE CHART
+        # --------------------------------------------------
 
-        chart_range = st.radio(
-            "Time range",
+        st.subheader("Price history")
+
+        period = st.radio(
+            "Chart range",
             ["1M", "3M", "6M", "1Y", "ALL"],
             index=1,
             horizontal=True,
             label_visibility="collapsed",
-            key="home_chart_range",
         )
 
-        periods = {
+        days = {
             "1M": 22,
             "3M": 66,
             "6M": 132,
             "1Y": 252,
             "ALL": len(daily),
-        }
-
-        days = periods[chart_range]
+        }[period]
 
         chart_data = daily.tail(days)
 
-        # Chart color reflects selected range,
-        # not the fixed one-month indicator.
         if len(chart_data) >= 2:
-            range_change = (
-                float(chart_data["Close"].iloc[-1])
-                / float(chart_data["Close"].iloc[0])
+            st.plotly_chart(
+                create_price_chart(chart_data),
+                use_container_width=True,
+                config={
+                    "displayModeBar": False
+                },
+            )
+
+            period_return = (
+                float(
+                    chart_data["Close"].iloc[-1]
+                )
+                / float(
+                    chart_data["Close"].iloc[0]
+                )
                 - 1
             ) * 100
-        else:
-            range_change = 0
 
-        st.plotly_chart(
-            price_chart(
-                chart_data,
-                range_change,
-            ),
-            use_container_width=True,
-            config={
-                "displayModeBar": False
-            },
-        )
+            st.caption(
+                f"{period} price change: "
+                f"{period_return:+.2f}%"
+            )
 
-        st.caption(
-            f"Chart period return: "
-            f"{range_change:+.2f}%. "
-            "The headline percentage shows "
-            "approximately one month."
-        )
+        # --------------------------------------------------
+        # QUICK MARKET SNAPSHOT
+        # --------------------------------------------------
 
-        # ----------------------------------------------------
-        # AT A GLANCE
-        # ----------------------------------------------------
-
-        st.markdown(
-            '<div class="section-heading">'
-            'At a glance'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+        st.subheader("At a glance")
 
         a, b = st.columns(2)
 
         with a:
-            st.markdown(
-                metric_card(
-                    "Price momentum",
-                    (
-                        "Positive"
-                        if month_change > 0
-                        else "Negative"
-                        if month_change < 0
-                        else "Flat"
-                    ),
-                    color,
-                    "Approx. one month",
-                ),
-                unsafe_allow_html=True,
+            st.metric(
+                "RSI",
+                f"{info['rsi']:.1f}",
             )
 
         with b:
-            score = analysis["score"]
-
-            score_color = (
-                GREEN if score >= 3
-                else AMBER if score == 2
-                else RED
+            st.metric(
+                "Volatility",
+                f"{info['volatility']:.1f}%",
             )
 
-            st.markdown(
-                metric_card(
-                    "Technical indicators",
-                    f"{score} of 4 positive",
-                    score_color,
-                    "Trend checklist",
-                ),
-                unsafe_allow_html=True,
-            )
-
-        a, b = st.columns(2)
-
-        with a:
-            rsi = analysis["rsi"]
-
-            rsi_color = (
-                RED if rsi >= 70
-                else GREEN if 40 <= rsi <= 65
-                else AMBER
-            )
-
-            st.markdown(
-                metric_card(
-                    "RSI",
-                    f"{rsi:.1f}",
-                    rsi_color,
-                    "14-period momentum index",
-                ),
-                unsafe_allow_html=True,
-            )
-
-        with b:
-            st.markdown(
-                metric_card(
-                    "Annualized volatility",
-                    f"{analysis['volatility']:.1f}%",
-                    WHITE,
-                    "Based on recent daily returns",
-                ),
-                unsafe_allow_html=True,
-            )
-
-        # ----------------------------------------------------
-        # TECHNICAL OUTLOOK
-        # ----------------------------------------------------
-
-        st.markdown(
-            '<div class="section-heading">'
-            'Technical outlook'
-            '</div>',
-            unsafe_allow_html=True,
+        st.caption(
+            "RSI measures recent price momentum. "
+            "Volatility is annualized from "
+            "recent daily returns."
         )
 
-        explanations = {
-            "RESEARCH ENTRY":
-                "Several trend indicators are "
-                "positive. Research valuation "
-                "and fundamentals before investing.",
+        # --------------------------------------------------
+        # TIMESTAMPS
+        # --------------------------------------------------
 
-            "WATCH":
-                "Signals are mixed. Monitor "
-                "the trend before drawing conclusions.",
+        st.divider()
 
-            "REVIEW RISK":
-                "Trend indicators are weaker. "
-                "Review risk and your investment thesis.",
-        }
-
-        st.markdown(
-            f"""
-            <div class="mini-card" style="
-                border-left:4px solid {outlook_tint};
-            ">
-                <div class="mini-value"
-                     style="color:{outlook_tint}">
-                    {safe(outlook_text)}
-                </div>
-                <div style="
-                    color:#B5C0CD;
-                    margin-top:9px;
-                    font-size:.87rem;
-                    line-height:1.6;
-                ">
-                    {safe(explanations.get(
-                        outlook,
-                        "Insufficient signal data."
-                    ))}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        # ----------------------------------------------------
-        # MARKET TIMESTAMPS
-        # ----------------------------------------------------
-
-        updated = format_central(
-            checked_at
-        )
-
-        observed = format_central(
-            latest["timestamp"],
-            daily=latest["daily"],
-        )
-
-        st.markdown(
-            f"""
-            <div class="data-footer">
-                ↻ Dashboard checked:
-                {safe(updated)}
-                <br>
-                ◷ Latest market data:
-                {safe(observed)}
-                <br>
-                Source observation:
-                {safe(latest['kind'])}
-            </div>
-            """,
-            unsafe_allow_html=True,
+        st.caption(
+            "↻ Dashboard checked: "
+            + format_central(checked_at)
         )
 
         st.caption(
-            "Dashboard checks run approximately "
-            "every five minutes while open. "
-            "Market quotes may be delayed."
+            "◷ Latest market data: "
+            + format_central(
+                latest["timestamp"],
+                daily=latest["daily"],
+            )
         )
 
-    # ========================================================
+        st.caption(
+            f"Observation: {latest['kind']}. "
+            "Checks run about every five minutes "
+            "while the dashboard is open. "
+            "Data may be delayed."
+        )
+
+    # ======================================================
     # DISCOVER
-    # ========================================================
+    # ======================================================
 
     with discover:
 
-        st.subheader("Your watchlist")
+        st.subheader("Watchlist")
 
         st.caption(
-            "See which stocks have positive "
-            "or negative price momentum."
+            "Compare stock momentum and "
+            "technical research signals."
         )
 
         rows = []
 
-        for ticker in WATCHLIST:
-
+        for stock in WATCHLIST:
             try:
-                stock_data = cached_prices(ticker)
-                result = analyze(stock_data)
+                result = analyze(
+                    load_prices(stock)
+                )
 
                 if result is None:
                     continue
 
+                rec = recommendation(result)
+
                 rows.append({
-                    "Stock": ticker,
-                    "Price": round(
-                        result["price"], 2
-                    ),
-                    "1M change": round(
-                        result["month_change"], 2
-                    ),
-                    "Indicators": result["score"],
-                    "Trend": outlook_label(
-                        result["signal"]
-                    ),
+                    "Stock": stock,
+                    "Price": result["price"],
+                    "1M change": result[
+                        "month_change"
+                    ],
+                    "Signal": rec["label"],
+                    "Score": result["score"],
                 })
 
             except Exception:
                 continue
 
         if rows:
+            table = pd.DataFrame(rows)
 
-            watchlist_df = pd.DataFrame(
-                rows
-            )
-
-            watchlist_df = watchlist_df.sort_values(
+            table = table.sort_values(
                 "1M change",
                 ascending=False,
             )
 
-            def color_change(value):
+            def color_percent(value):
                 return (
-                    f"color: {movement_color(value)};"
-                    "font-weight: 750"
+                    f"color: {change_color(value)};"
+                    "font-weight: bold"
                 )
 
-            def color_trend(value):
+            def color_signal(value):
                 colors = {
-                    "Positive trend": GREEN,
-                    "Mixed signals": AMBER,
-                    "Weak trend": RED,
+                    "BUY": GREEN,
+                    "HOLD": AMBER,
+                    "SELL": RED,
                 }
 
                 return (
-                    f"color: {colors.get(value, MUTED)};"
-                    "font-weight: 700"
+                    f"color: {colors.get(value, WHITE)};"
+                    "font-weight: bold"
                 )
 
             styled = (
-                watchlist_df.style
+                table.style
                 .map(
-                    color_change,
+                    color_percent,
                     subset=["1M change"],
                 )
                 .map(
-                    color_trend,
-                    subset=["Trend"],
+                    color_signal,
+                    subset=["Signal"],
                 )
                 .format({
                     "Price": "${:,.2f}",
                     "1M change": "{:+.2f}%",
-                    "Indicators": "{}/4",
+                    "Score": "{}/4",
                 })
             )
 
@@ -1029,28 +761,21 @@ def market_dashboard(symbol):
 
             st.download_button(
                 "Export watchlist",
-                watchlist_df.to_csv(
-                    index=False
-                ),
-                "market_watchlist.csv",
+                table.to_csv(index=False),
+                "watchlist.csv",
                 "text/csv",
             )
 
         else:
             st.info(
-                "Watchlist data is unavailable."
+                "Watchlist data unavailable."
             )
 
-        # ----------------------------------------------------
-        # STOCK COMPARISON
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # COMPARISON
+        # --------------------------------------------------
 
-        st.markdown(
-            '<div class="section-heading">'
-            'Compare stocks'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+        st.subheader("Compare stocks")
 
         a, b = st.columns(2)
 
@@ -1058,7 +783,7 @@ def market_dashboard(symbol):
             first = st.selectbox(
                 "Stock A",
                 WATCHLIST,
-                key="compare_a",
+                key="compare_first",
             )
 
         with b:
@@ -1069,36 +794,33 @@ def market_dashboard(symbol):
                     1,
                     len(WATCHLIST) - 1,
                 ),
-                key="compare_b",
+                key="compare_second",
             )
 
         if first == second:
-
             st.info(
-                "Select two different stocks."
+                "Choose two different stocks."
             )
 
         else:
-
             try:
-                first_series = cached_prices(
+                first_data = load_prices(
                     first
                 )["Close"].rename(first)
 
-                second_series = cached_prices(
+                second_data = load_prices(
                     second
                 )["Close"].rename(second)
 
                 combined = pd.concat(
                     [
-                        first_series,
-                        second_series,
+                        first_data,
+                        second_data,
                     ],
                     axis=1,
                 ).dropna().tail(126)
 
                 if len(combined) > 1:
-
                     normalized = (
                         combined.div(
                             combined.iloc[0]
@@ -1106,7 +828,7 @@ def market_dashboard(symbol):
                     )
 
                     st.plotly_chart(
-                        comparison_chart(normalized),
+                        create_comparison(normalized),
                         use_container_width=True,
                         config={
                             "displayModeBar": False
@@ -1114,130 +836,96 @@ def market_dashboard(symbol):
                     )
 
                     st.caption(
-                        "Comparison uses approximately "
-                        "six months of common trading "
-                        "dates. Both stocks start at 100."
-                    )
-
-                else:
-                    st.info(
-                        "Not enough overlapping "
-                        "data to compare."
+                        "Both stocks are indexed "
+                        "to 100 at the beginning "
+                        "of the comparison."
                     )
 
             except Exception:
                 st.info(
-                    "Comparison data unavailable."
+                    "Comparison unavailable."
                 )
 
-    # ========================================================
+    # ======================================================
     # RESEARCH
-    # ========================================================
+    # ======================================================
 
     with research:
 
         st.subheader(
-            f"Research {symbol}"
+            f"{ticker} research"
         )
 
-        # ----------------------------------------------------
-        # INDICATOR CHECKLIST
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # INDICATOR EXPLANATIONS
+        # --------------------------------------------------
 
-        st.markdown(
-            '<div class="section-heading">'
-            'Technical indicators'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+        st.subheader("Why this signal?")
 
-        labels = [
-            "Above 20-day moving average",
-            "Above 50-day moving average",
-            "Positive monthly momentum",
+        indicators = [
+            "Above 20-day average",
+            "Above 50-day average",
+            "Positive 1-month momentum",
             "RSI between 40 and 65",
         ]
 
         for label, passed in zip(
-            labels,
-            analysis["checks"],
+            indicators,
+            info["checks"],
         ):
-
-            color = GREEN if passed else RED
-
-            status = (
-                "✓ Positive"
-                if passed
-                else "— Not met"
-            )
-
-            st.markdown(
-                f"""
-                <div class="indicator">
-                    <span class="indicator-name">
-                        {safe(label)}
-                    </span>
-                    <span class="indicator-status"
-                          style="color:{color}">
-                        {status}
-                    </span>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            if passed:
+                st.success(
+                    f"✓ {label}"
+                )
+            else:
+                st.error(
+                    f"— {label} not met"
+                )
 
         st.caption(
-            "Indicators are descriptive, "
-            "not predictions or trading instructions."
+            "These four checks determine "
+            "the technical signal. They do "
+            "not measure valuation, earnings "
+            "quality, or your personal finances."
         )
 
-        # ----------------------------------------------------
-        # FINANCIAL NEWS
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # NEWS
+        # --------------------------------------------------
 
-        st.markdown(
-            '<div class="section-heading">'
-            'Latest financial news'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+        st.subheader("Financial news")
 
         try:
-            articles = cached_news(symbol)
+            articles = load_news(ticker)
 
             if not articles:
                 st.info(
-                    "No recent articles available."
+                    "No recent headlines available."
                 )
 
             for article in articles[:8]:
 
-                tone = article["tone"]
-
-                tone_color = {
-                    "Positive": GREEN,
-                    "Negative": RED,
-                    "Neutral": AMBER,
-                }.get(tone, MUTED)
-
                 with st.container(border=True):
-
                     st.markdown(
-                        f"**{safe(article['title'])}**"
+                        f"**{article['title']}**"
                     )
 
-                    st.markdown(
-                        f"""
-                        <span style="
-                            color:{tone_color};
-                            font-size:.8rem;
-                            font-weight:700;
-                        ">
-                            ● {safe(tone)} wording
-                        </span>
-                        """,
-                        unsafe_allow_html=True,
-                    )
+                    tone = article["tone"]
+
+                    if tone == "Positive":
+                        st.caption(
+                            "🟢 Positive headline wording"
+                        )
+
+                    elif tone == "Negative":
+                        st.caption(
+                            "🔴 Negative headline wording"
+                        )
+
+                    else:
+                        st.caption(
+                            "🟡 Neutral headline wording"
+                        )
 
                     if article.get("published"):
                         st.caption(
@@ -1255,39 +943,33 @@ def market_dashboard(symbol):
             )
 
         st.caption(
-            "News tone is based on headline wording, "
-            "not a verified assessment of the company."
+            "Headline tone is a text-based "
+            "sentiment estimate, not a "
+            "verified assessment of the news."
         )
 
-        # ----------------------------------------------------
+        # --------------------------------------------------
         # WHAT-IF SIMULATOR
-        # ----------------------------------------------------
+        # --------------------------------------------------
 
-        st.markdown(
-            '<div class="section-heading">'
-            'Investment simulator'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+        st.subheader("Investment simulator")
 
         amount = st.number_input(
             "Hypothetical investment ($)",
             min_value=0.0,
             value=500.0,
             step=50.0,
-            key="sim_amount",
         )
 
-        hypothetical_change = st.slider(
-            "Hypothetical price change (%)",
-            min_value=-80,
-            max_value=150,
-            value=10,
-            key="sim_change",
+        move = st.slider(
+            "Hypothetical price move (%)",
+            -80,
+            150,
+            10,
         )
 
         future_value = amount * (
-            1 + hypothetical_change / 100
+            1 + move / 100
         )
 
         profit = future_value - amount
@@ -1295,43 +977,30 @@ def market_dashboard(symbol):
         a, b = st.columns(2)
 
         with a:
-            st.markdown(
-                metric_card(
-                    "Potential value",
-                    f"${future_value:,.2f}",
-                    WHITE,
-                ),
-                unsafe_allow_html=True,
+            st.metric(
+                "Potential value",
+                f"${future_value:,.2f}",
             )
 
         with b:
-            st.markdown(
-                metric_card(
-                    "Gain or loss",
-                    f"${profit:+,.2f}",
-                    movement_color(profit),
-                ),
-                unsafe_allow_html=True,
+            st.metric(
+                "Gain / loss",
+                f"${profit:+,.2f}",
+                delta=f"{move:+d}%",
             )
 
         st.caption(
-            "Hypothetical scenarios only. "
-            "Taxes, fees and dividends excluded."
+            "Illustrative arithmetic only. "
+            "Excludes fees, taxes and dividends."
         )
 
-        # ----------------------------------------------------
-        # RESEARCH JOURNAL
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # JOURNAL
+        # --------------------------------------------------
 
-        st.markdown(
-            '<div class="section-heading">'
-            'Research journal'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+        st.subheader("Research journal")
 
-        with st.form("research_journal"):
-
+        with st.form("journal_form"):
             stance = st.selectbox(
                 "Research idea",
                 [
@@ -1343,29 +1012,21 @@ def market_dashboard(symbol):
             )
 
             thesis = st.text_area(
-                "Your investment thesis",
-                placeholder=(
-                    "What makes this stock "
-                    "interesting to you?"
-                ),
+                "Your research notes"
             )
 
-            submitted = st.form_submit_button(
-                "Save research note"
+            save = st.form_submit_button(
+                "Save note"
             )
 
-        if submitted:
-
+        if save:
             if not thesis.strip():
                 st.warning(
-                    "Write a note before saving."
+                    "Write a note first."
                 )
-
             else:
-
                 try:
-                    with journal_connection() as conn:
-
+                    with journal_db() as conn:
                         conn.execute(
                             """
                             INSERT INTO journal
@@ -1380,15 +1041,15 @@ def market_dashboard(symbol):
                             """,
                             (
                                 now_central().isoformat(),
-                                symbol,
+                                ticker,
                                 stance,
-                                latest["price"],
+                                price,
                                 thesis.strip(),
                             ),
                         )
 
                     st.success(
-                        "Research note saved."
+                        "Note saved."
                     )
 
                 except Exception as exc:
@@ -1397,8 +1058,7 @@ def market_dashboard(symbol):
                     )
 
         try:
-            with journal_connection() as conn:
-
+            with journal_db() as conn:
                 notes = pd.read_sql_query(
                     """
                     SELECT
@@ -1415,7 +1075,6 @@ def market_dashboard(symbol):
                 )
 
             if not notes.empty:
-
                 st.dataframe(
                     notes,
                     hide_index=True,
@@ -1433,53 +1092,44 @@ def market_dashboard(symbol):
 
         except Exception:
             st.info(
-                "Journal temporarily unavailable."
+                "Journal unavailable."
             )
 
         st.caption(
-            "Journal notes are stored locally. "
-            "On Streamlit Community Cloud, "
-            "they may disappear after a restart. "
-            "Export regularly."
+            "Journal storage on Streamlit "
+            "Community Cloud is temporary. "
+            "Export notes regularly."
         )
 
 
-# ============================================================
-# RUN DASHBOARD
-# ============================================================
+# ==========================================================
+# RUN
+# ==========================================================
 
-market_dashboard(selected_stock)
+dashboard(symbol)
 
+# ==========================================================
+# EMAIL AUTOMATION
+# ==========================================================
 
-# ============================================================
-# AUTOMATED EMAIL INFORMATION
-# ============================================================
-
-with st.expander("Email alert settings"):
-
+with st.expander("Automated email alerts"):
     st.write(
-        "GitHub Actions monitors your watchlist "
-        "separately and sends emails when "
-        "configured price thresholds, "
-        "technical signal changes or matching "
-        "financial headlines are detected."
+        "Your GitHub Actions workflow monitors "
+        "stocks separately from this dashboard."
     )
 
     st.caption(
-        "The dashboard does not need to stay "
-        "open for scheduled email monitoring."
+        "Emails continue to use the alert "
+        "rules in your existing alert_worker.py. "
+        "The dashboard's BUY / HOLD / SELL "
+        "labels do not change those email rules."
     )
-
-
-# ============================================================
-# FOOTER
-# ============================================================
 
 st.divider()
 
 st.caption(
     "Market Intelligence · "
-    "Research and education only · "
-    "Quotes may be delayed · "
-    "No automatic trades"
+    "Technical research only · "
+    "Not personalized investment advice · "
+    "No automatic trading"
 )
