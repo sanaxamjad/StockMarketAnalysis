@@ -2,243 +2,865 @@
 import html
 import json
 import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import quote_plus
 
-import feedparser
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import requests
 import streamlit as st
-import yfinance as yf
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-st.set_page_config(page_title='Market Intelligence', page_icon='◈', layout='wide')
-BG='#0B1018'; PANEL='#151D29'; EDGE='#293446'; TEXT='#E9F1F8'; MUTED='#A0AFC0'; GREEN='#51E3B0'; RED='#FF8592'; GOLD='#F2C777'
-st.markdown(f'''<style>
-:root{{color-scheme:dark}}html,body,.stApp{{background:{BG};color:{TEXT}}}
-[data-testid="stSidebar"]{{background:#101824;border-right:1px solid {EDGE}}}
-.block-container{{max-width:1450px;padding-top:1.8rem}}
-h1,h2,h3,p,label,[data-testid="stMarkdownContainer"]{{color:{TEXT}}}
-[data-testid="stMetric"],div[data-testid="stVerticalBlockBorderWrapper"]>div{{background:{PANEL};border-radius:16px}}
-[data-testid="stMetric"]{{border:1px solid {EDGE};padding:18px}}
-[data-testid="stMetricLabel"]{{color:{MUTED}}}
-[data-testid="stMetricValue"]{{color:{TEXT}}}
-.stButton button,.stDownloadButton button{{border-radius:12px;background:#1C293A;color:{TEXT};border:1px solid {EDGE}}}
-.stButton button:hover,.stDownloadButton button:hover{{border-color:{GREEN};color:{GREEN}}}
-[data-baseweb="select"]>div,[data-baseweb="input"]>div,[data-baseweb="textarea"]>div{{background:{PANEL}!important;color:{TEXT}!important}}
-[data-testid="stTabs"] button{{color:{MUTED}}}
-[data-testid="stTabs"] button[aria-selected="true"]{{color:{GREEN}}}
-.hero{{padding:26px 30px;border:1px solid {EDGE};border-radius:22px;background:linear-gradient(120deg,#17283A,#111923);margin-bottom:20px}}
-.hero h1{{margin:0;color:{TEXT}}}.hero p{{color:{MUTED};margin:8px 0 0}}
-.note{{background:{PANEL};border:1px solid {EDGE};border-radius:14px;padding:18px;margin:10px 0;color:{TEXT}}}
-</style>''', unsafe_allow_html=True)
+from market_core import (
+    analyze,
+    format_central,
+    get_latest_bar,
+    get_news,
+    get_prices,
+    now_central,
+)
 
-DB=Path(__file__).with_name('market_journal.db')
-def db():
-    conn=sqlite3.connect(DB)
-    conn.execute('CREATE TABLE IF NOT EXISTS journal (id INTEGER PRIMARY KEY, date TEXT, ticker TEXT, stance TEXT, price REAL, thesis TEXT)')
-    conn.commit()
-    return conn
+st.set_page_config(
+    page_title="Market Intelligence",
+    page_icon="✦",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
-def fmt(v): return f'${v:,.2f}'
-def pct(v): return f'{v:+.2f}%'
-def chart_layout(fig,height=380):
-    fig.update_layout(height=height,paper_bgcolor=PANEL,plot_bgcolor=PANEL,font=dict(color=MUTED),margin=dict(l=12,r=12,t=20,b=15),xaxis=dict(showgrid=False),yaxis=dict(gridcolor=EDGE),hovermode='x unified',legend=dict(orientation='h',y=1.13))
+ROOT = Path(__file__).resolve().parent
+
+CONFIG = json.loads(
+    (ROOT / "alert_config.json").read_text()
+)
+
+WATCHLIST = CONFIG["watchlist"]
+
+GOLD = "#DCC18C"
+GREEN = "#71DDB1"
+PANEL = "#171F2B"
+
+
+# ============================================================
+# MOBILE-FIRST DARK DESIGN
+# ============================================================
+
+st.markdown("""
+<style>
+html, body, .stApp,
+[data-testid="stAppViewContainer"] {
+    background: #0B1017;
+    color: #F5F1E9;
+}
+
+.block-container {
+    max-width: 1080px;
+    padding: 1rem 1rem 4rem;
+}
+
+[data-testid="stHeader"] {
+    background: transparent;
+}
+
+h1, h2, h3 {
+    letter-spacing: -.035em;
+}
+
+.hero {
+    padding: 24px;
+    border: 1px solid #364456;
+    border-radius: 20px;
+    background: linear-gradient(
+        120deg, #273341, #141B26
+    );
+    margin-bottom: 18px;
+}
+
+.hero h1 {
+    font-size: clamp(1.9rem, 5vw, 2.8rem);
+    margin: .4rem 0;
+}
+
+.hero p {
+    color: #B4C0CF;
+    margin: 0;
+}
+
+.eyebrow {
+    color: #DCC18C;
+    font-size: .7rem;
+    font-weight: 800;
+    letter-spacing: .15em;
+}
+
+.timebox {
+    background: #171F2B;
+    border: 1px solid #344050;
+    border-radius: 15px;
+    padding: 14px;
+    min-height: 106px;
+}
+
+.timebox .small {
+    color: #B4C0CF;
+    font-size: .74rem;
+    margin-bottom: 7px;
+}
+
+.timebox .value {
+    font-weight: 700;
+    font-size: clamp(.82rem, 2vw, 1.05rem);
+    overflow-wrap: anywhere;
+}
+
+[data-testid="stMetric"] {
+    background: #171F2B;
+    border: 1px solid #344050;
+    border-radius: 15px;
+    padding: 14px;
+}
+
+[data-testid="stMetricValue"] {
+    font-size: clamp(1.2rem, 3vw, 1.85rem);
+}
+
+.stButton button[kind="primary"] {
+    background: #DCC18C;
+    color: #0B1017;
+    border-color: #DCC18C;
+    font-weight: 750;
+    min-height: 48px;
+    border-radius: 12px;
+}
+
+.stButton button,
+.stDownloadButton button {
+    border-radius: 12px;
+    min-height: 44px;
+}
+
+[data-testid="stTabs"] [data-baseweb="tab-list"] {
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+[data-testid="stTabs"] button {
+    white-space: nowrap;
+}
+
+.signal {
+    border-left: 4px solid #DCC18C;
+    background: #171F2B;
+    border-radius: 12px;
+    padding: 18px;
+    margin: 12px 0;
+}
+
+@media (max-width: 640px) {
+    .block-container {
+        padding: .6rem .7rem 4rem;
+    }
+
+    .hero {
+        padding: 18px 15px;
+    }
+
+    .hero h1 {
+        font-size: 1.8rem;
+    }
+
+    .hero p {
+        font-size: .87rem;
+    }
+
+    .timebox {
+        padding: 10px;
+        min-height: 104px;
+    }
+
+    .timebox .value {
+        font-size: .81rem;
+    }
+
+    [data-testid="stMetric"] {
+        padding: 10px;
+    }
+
+    [data-testid="stMetricValue"] {
+        font-size: 1.25rem !important;
+    }
+
+    .stButton button {
+        width: 100%;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+# ============================================================
+# CACHED MARKET DATA
+# ============================================================
+
+@st.cache_data(ttl=300, show_spinner=False)
+def prices(symbol):
+    return get_prices(symbol)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def observation(symbol):
+    return get_latest_bar(symbol)
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def news(symbol):
+    return get_news(symbol)
+
+
+# ============================================================
+# PRICE CHART
+# ============================================================
+
+def chart(df, info, days):
+    part = df.tail(days)
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=part.index,
+        y=part["Close"],
+        name="Price",
+        line=dict(
+            color=GOLD,
+            width=3,
+        ),
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=part.index,
+        y=info["ma20"].reindex(part.index),
+        name="20-day avg",
+        line=dict(
+            color=GREEN,
+            dash="dot",
+        ),
+    ))
+
+    fig.update_layout(
+        height=330,
+        paper_bgcolor=PANEL,
+        plot_bgcolor=PANEL,
+        font=dict(color="#B4C0CF"),
+        margin=dict(l=5, r=5, t=28, b=5),
+        xaxis=dict(showgrid=False),
+        yaxis=dict(
+            gridcolor="#303A48",
+            tickprefix="$",
+        ),
+        legend=dict(
+            orientation="h",
+            y=1.16,
+        ),
+        hovermode="x unified",
+    )
+
     return fig
 
-@st.cache_data(ttl=300,show_spinner=False)
-def prices(ticker,period='1y',interval='1d'):
-    d=yf.download(ticker,period=period,interval=interval,auto_adjust=True,progress=False,threads=False)
-    if d.empty:return pd.DataFrame()
-    if isinstance(d.columns,pd.MultiIndex):d.columns=d.columns.get_level_values(0)
-    return d.dropna(subset=['Close']).copy()
 
-@st.cache_data(ttl=900,show_spinner=False)
-def headlines(ticker):
-    url='https://news.google.com/rss/search?q='+quote_plus(f'{ticker} stock earnings company')+'&hl=en-US&gl=US&ceid=US:en'
+# ============================================================
+# RESEARCH JOURNAL DATABASE
+# ============================================================
+
+def journal_db():
+    connection = sqlite3.connect(
+        ROOT / "market_journal.db"
+    )
+
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS journal (
+            id INTEGER PRIMARY KEY,
+            created TEXT,
+            ticker TEXT,
+            stance TEXT,
+            price REAL,
+            thesis TEXT
+        )
+    """)
+
+    connection.commit()
+    return connection
+
+
+# ============================================================
+# MAIN PAGE HEADER
+# ============================================================
+
+st.markdown("""
+<div class="hero">
+    <div class="eyebrow">
+        THE PERSONAL MARKET DESK
+    </div>
+    <h1>Market Intelligence</h1>
+    <p>
+        Trends, research signals, and the
+        stories moving your watchlist.
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+stock_col, range_col = st.columns([2, 1])
+
+with stock_col:
+    symbol = st.selectbox(
+        "Watchlist stock",
+        WATCHLIST,
+    )
+
+with range_col:
+    period = st.selectbox(
+        "Chart range",
+        ["1M", "3M", "6M", "1Y", "2Y"],
+        index=1,
+    )
+
+
+# ============================================================
+# AUTOMATIC DASHBOARD REFRESH
+# ============================================================
+
+@st.fragment(run_every=300)
+def dashboard():
+
+    if st.button(
+        "↻ Refresh Market Data",
+        type="primary",
+        use_container_width=True,
+    ):
+        prices.clear()
+        observation.clear()
+        news.clear()
+
     try:
-        r=requests.get(url,timeout=10,headers={'User-Agent':'Mozilla/5.0'});r.raise_for_status()
-        feed=feedparser.parse(r.content)
-        return [{'title':e.get('title',''),'link':e.get('link',''),'published':e.get('published','')} for e in feed.entries[:8]]
-    except requests.RequestException:return []
+        with st.spinner("Checking market data..."):
+            df = prices(symbol)
+            info = analyze(df)
 
-sentiment=SentimentIntensityAnalyzer()
-def news_analysis(items):
-    out=[]
-    for a in items:
-        s=sentiment.polarity_scores(a['title'])['compound']
-        out.append({**a,'score':s,'tone':'Positive' if s>.1 else 'Negative' if s<-.1 else 'Mixed/neutral'})
-    return out
+            if info is None:
+                st.warning(
+                    "Not enough price history "
+                    "for this ticker."
+                )
+                return
 
-def analyze(df):
-    if len(df)<55:return None
-    close=df['Close']; p=float(close.iloc[-1]); ma20=close.rolling(20).mean();ma50=close.rolling(50).mean()
-    delta=close.diff();gain=delta.clip(lower=0).ewm(alpha=1/14,adjust=False,min_periods=14).mean();loss=(-delta.clip(upper=0)).ewm(alpha=1/14,adjust=False,min_periods=14).mean()
-    if loss.iloc[-1]==0:rsi=100. if gain.iloc[-1]>0 else 50.
-    else:rsi=float(100-100/(1+gain.iloc[-1]/loss.iloc[-1]))
-    momentum=(p/float(close.iloc[-21])-1)*100
-    positives=[];warnings=[]
-    if p>ma20.iloc[-1]:positives.append('Price is above its recent average')
-    else:warnings.append('Price is below its recent average')
-    if p>ma50.iloc[-1]:positives.append('The longer price trend is positive')
-    else:warnings.append('The longer price trend is weak')
-    if momentum>0:positives.append('The stock gained over the last ~month')
-    else:warnings.append('The stock declined over the last ~month')
-    if 40<=rsi<=65:positives.append('Price momentum is moderate')
-    elif rsi>70:warnings.append('A rapid rise may be overheated')
-    elif rsi<30:warnings.append('Selling pressure has been heavy')
-    score=len(positives)
-    label='Research a possible entry' if score>=3 and rsi<70 else 'Review risk / thesis' if score<=1 else 'Watch and wait'
-    returns=close.pct_change().dropna();vol=float(returns.tail(20).std()*np.sqrt(252)*100)
-    tr=pd.concat([(df['High']-df['Low']), (df['High']-close.shift()).abs(),(df['Low']-close.shift()).abs()],axis=1).max(axis=1)
-    atr=float(tr.rolling(14).mean().iloc[-1])
-    return dict(price=p,score=score,label=label,positives=positives,warnings=warnings,momentum=momentum,rsi=rsi,vol=vol,atr=atr,ma20=ma20,ma50=ma50)
+            bar = observation(symbol)
 
-def price_chart(df,analysis,days=90):
-    d=df.tail(days)
-    fig=go.Figure()
-    fig.add_trace(go.Scatter(x=d.index,y=d.Close,name='Share price',line=dict(color=GREEN,width=3),fill='tozeroy',fillcolor='rgba(81,227,176,.06)'))
-    fig.add_trace(go.Scatter(x=d.index,y=analysis['ma20'].reindex(d.index),name='Recent average',line=dict(color='#92A5C2',dash='dot')))
-    return chart_layout(fig,420)
+            if bar is None:
+                bar = get_latest_bar(symbol, df)
 
-st.sidebar.title('◈ Market Intelligence')
-watch_text=st.sidebar.text_area('Your watchlist','NVDA, AAPL, MSFT, AMD, CRDO, VOO',height=100)
-watch=list(dict.fromkeys(x.strip().upper() for x in watch_text.split(',') if x.strip()))[:15]
-selected=st.sidebar.selectbox('Explore a stock',watch if watch else ['NVDA'])
-custom=st.sidebar.text_input('Or enter a ticker').strip().upper()
-ticker=custom or selected
-period=st.sidebar.select_slider('Chart history',['1mo','3mo','6mo','1y','2y'],value='3mo')
-if st.sidebar.button('↻ Refresh now',use_container_width=True):st.cache_data.clear();st.rerun()
-st.sidebar.caption('Checks every 5 minutes while the app is open. Yahoo Finance data may be delayed. No orders are placed.')
+            if bar is None:
+                st.warning(
+                    "Price observation unavailable."
+                )
+                return
 
-st.markdown('<div class="hero"><h1>Market Intelligence</h1><p>Your personal market radar · simple explanations · news context · decision journal</p></div>',unsafe_allow_html=True)
-tabs=st.tabs(['Overview','Opportunity radar','Compare stocks','What-if lab','Research journal'])
+            checked = now_central()
 
-@st.fragment(run_every=300)
-def overview():
-    with st.spinner('Checking prices and headlines...'):
-        df=prices(ticker,'2y');intraday=prices(ticker,'5d','5m');items=news_analysis(headlines(ticker))
-    a=analyze(df)
-    if a is None:st.error('Not enough price history for this stock.');return
-    latest=float(intraday.Close.iloc[-1]) if not intraday.empty else a['price']
-    quote_time=str(intraday.index[-1]) if not intraday.empty else str(df.index[-1])
-    # Previous close is the last completed daily bar when intraday exists; during market close use previous completed day.
-    prev=float(df.Close.iloc[-1]) if not intraday.empty else float(df.Close.iloc[-2])
-    change=(latest/prev-1)*100 if prev else 0
-    st.subheader(f'{ticker} · At a glance')
-    c1,c2,c3,c4=st.columns(4)
-    c1.metric('Latest available price',fmt(latest),pct(change))
-    c2.metric('Past ~month',pct(a['momentum']))
-    c3.metric('Positive signs',f"{a['score']} / 4")
-    c4.metric('Price swings','High' if a['vol']>50 else 'Moderate' if a['vol']>25 else 'Lower')
-    st.caption('Last price observation: '+quote_time+' · May be delayed; daily trend indicators update after daily bars close.')
-    left,right=st.columns([1.8,1])
-    with left:
-        st.plotly_chart(price_chart(df,a,{'1mo':22,'3mo':66,'6mo':132,'1y':252,'2y':504}[period]),use_container_width=True)
-        st.caption('Green = historical price · dotted = recent average. Past performance does not predict future returns.')
-    with right:
-        st.markdown('### What does it mean?')
-        st.markdown(f'<div class="note"><strong>{html.escape(a["label"])}</strong><p style="color:{MUTED}">This is a technical research cue, not an instruction to trade. Consider news, valuation, and your time horizon.</p></div>',unsafe_allow_html=True)
-        st.write('**Encouraging signs**')
-        for item in a['positives']:st.write('✓ '+item)
-        st.write('**Things to watch**')
-        for item in a['warnings']:st.write('• '+item)
-    st.divider()
-    st.subheader('News radar')
-    if items:
-        positives=sum(x['tone']=='Positive' for x in items);negative=sum(x['tone']=='Negative' for x in items)
-        st.caption(f'{positives} positive-sounding · {negative} negative-sounding · {len(items)-positives-negative} neutral headlines. Headline tone is not a forecast.')
-        for item in items:
-            with st.container(border=True):
-                st.markdown('**'+html.escape(item['title'])+'**')
-                st.caption(item['tone']+' · '+item['published'])
-                if item['link'].startswith('https://'):st.link_button('Read original article',item['link'])
-    else:st.info('No headlines available right now. News feeds can fail or be incomplete.')
-    st.subheader('Price scenario explorer')
-    change_pct=st.slider('Imagine the stock changes by...',-30,30,5,key='overview_scenario')
-    st.metric('Hypothetical share price',fmt(latest*(1+change_pct/100)),pct(change_pct))
-    st.caption('A scenario, not a prediction.')
-    with st.expander('Explain every investing term'):
-        st.write('**Momentum:** whether the price is higher or lower than about a month ago. **Recent average:** a smoothed price line. **Volatility:** how widely prices swing. **Positive signs:** a count of four simple trend checks, not a probability of profit. **Headline sentiment:** wording of titles, not the effect on a company.')
-    st.caption('Dashboard check: '+datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC'))
+    except Exception as exc:
+        st.error(
+            f"Market data check failed: {exc}"
+        )
+        return
 
-with tabs[0]:overview()
+    # --------------------------------------------------------
+    # TWO SEPARATE TIMESTAMPS
+    # --------------------------------------------------------
 
-@st.fragment(run_every=300)
-def radar():
-    st.subheader('Opportunity radar')
-    st.caption('Rank your watchlist by price-trend strength. A high score is not proof that a stock is undervalued.')
-    rows=[]
-    for sym in watch:
+    a, b = st.columns(2)
+
+    with a:
+        st.markdown(
+            '<div class="timebox">'
+            '<div class="small">'
+            '↻ Dashboard updated'
+            '</div>'
+            '<div class="value">'
+            + html.escape(format_central(checked))
+            + '</div></div>',
+            unsafe_allow_html=True,
+        )
+
+    with b:
+        st.markdown(
+            '<div class="timebox">'
+            '<div class="small">'
+            '◈ Latest market data'
+            '</div>'
+            '<div class="value">'
+            + html.escape(
+                format_central(
+                    bar["timestamp"],
+                    daily=bar["daily"],
+                )
+            )
+            + '</div></div>',
+            unsafe_allow_html=True,
+        )
+
+    st.caption(
+        f"Price observation: {bar['kind']}. "
+        "Five-minute auto-checks while open. "
+        "Data may be delayed; a bar timestamp "
+        "is not the last individual trade time."
+    )
+
+    # --------------------------------------------------------
+    # DASHBOARD TABS
+    # --------------------------------------------------------
+
+    overview, radar, compare, lab, journal = st.tabs([
+        "Overview",
+        "Radar",
+        "Compare",
+        "What-if",
+        "Journal",
+    ])
+
+    # --------------------------------------------------------
+    # OVERVIEW
+    # --------------------------------------------------------
+
+    with overview:
+        st.subheader(symbol + " · Overview")
+
+        a, b = st.columns(2)
+
+        a.metric(
+            "Latest observed price",
+            f"${bar['price']:,.2f}",
+        )
+
+        b.metric(
+            "~1-month change",
+            f"{info['month_change']:+.2f}%",
+        )
+
+        a, b = st.columns(2)
+
+        a.metric(
+            "Positive indicators",
+            f"{info['score']} / 4",
+        )
+
+        b.metric(
+            "Annualized volatility",
+            f"{info['volatility']:.1f}%",
+        )
+
+        days = {
+            "1M": 22,
+            "3M": 66,
+            "6M": 132,
+            "1Y": 252,
+            "2Y": 504,
+        }[period]
+
+        st.plotly_chart(
+            chart(df, info, days),
+            use_container_width=True,
+            config={"displayModeBar": False},
+        )
+
+        explanation = {
+            "RESEARCH ENTRY":
+                "Several price-trend indicators are "
+                "positive. Check fundamentals and "
+                "valuation before considering an entry.",
+
+            "WATCH":
+                "Price-trend indicators are mixed. "
+                "Continue monitoring.",
+
+            "REVIEW RISK":
+                "Recent technical indicators are "
+                "weaker. Reassess your thesis "
+                "and exposure.",
+        }[info["signal"]]
+
+        st.markdown(
+            '<div class="signal">'
+            '<div class="eyebrow">'
+            'TECHNICAL RESEARCH OUTLOOK'
+            '</div>'
+            '<h3>'
+            + html.escape(info["signal"])
+            + '</h3><p>'
+            + html.escape(explanation)
+            + '</p></div>',
+            unsafe_allow_html=True,
+        )
+
+        with st.expander("Why this outlook?"):
+            labels = [
+                "Above 20-day average",
+                "Above 50-day average",
+                "Positive ~1-month momentum",
+                "RSI between 40 and 65",
+            ]
+
+            for label, passed in zip(
+                labels,
+                info["checks"],
+            ):
+                st.write(
+                    ("✓ " if passed else "○ ")
+                    + label
+                )
+
+            st.caption(
+                "Technical conditions describe "
+                "historical prices; they do not "
+                "predict returns."
+            )
+
+        st.subheader("Latest headlines")
+
         try:
-            d=prices(sym,'1y');a=analyze(d)
-            if a:rows.append({'Stock':sym,'Price':a['price'],'Positive signs':a['score'],'1-month change %':round(a['momentum'],2),'Price swings %':round(a['vol'],1),'Research cue':a['label']})
-        except Exception:pass
-    if rows:
-        table=pd.DataFrame(rows).sort_values(['Positive signs','1-month change %'],ascending=False)
-        st.dataframe(table,hide_index=True,use_container_width=True,column_config={'Price':st.column_config.NumberColumn(format='$%.2f'),'1-month change %':st.column_config.NumberColumn(format='%.2f%%'),'Price swings %':st.column_config.NumberColumn(format='%.1f%%')})
-        st.download_button('Download watchlist report',table.to_csv(index=False),'market_radar.csv','text/csv')
-        fig=go.Figure(go.Bar(x=table['Stock'],y=table['1-month change %'],marker_color=[GREEN if v>=0 else RED for v in table['1-month change %']]))
-        st.plotly_chart(chart_layout(fig,330),use_container_width=True)
-    else:st.info('No watchlist data available.')
-with tabs[1]:radar()
+            articles = news(symbol)
 
-with tabs[2]:
-    st.subheader('Head-to-head stock comparison')
-    options=watch if len(watch)>=2 else ['NVDA','AAPL']
-    c1,c2=st.columns(2)
-    with c1:first=st.selectbox('First stock',options,index=0)
-    with c2:second=st.selectbox('Second stock',options,index=1 if len(options)>1 else 0)
-    if first==second:st.info('Choose two different stocks.')
-    else:
-        d1=prices(first,'1y');d2=prices(second,'1y')
-        if not d1.empty and not d2.empty:
-            merged=pd.concat([d1.Close.rename(first),d2.Close.rename(second)],axis=1).dropna().tail(126)
-            if len(merged)>1:
-                normalized=merged.div(merged.iloc[0]).mul(100)
-                fig=go.Figure()
-                fig.add_trace(go.Scatter(x=normalized.index,y=normalized[first],name=first,line=dict(color=GREEN,width=3)))
-                fig.add_trace(go.Scatter(x=normalized.index,y=normalized[second],name=second,line=dict(color='#A8A4FF',width=3)))
-                st.plotly_chart(chart_layout(fig,420),use_container_width=True)
-                st.caption('Both start at 100 so you can compare percentage performance, not share prices.')
-        else:st.warning('Could not load both stocks.')
+            if not articles:
+                st.info("No headlines available.")
 
-with tabs[3]:
-    st.subheader('What-if investment lab')
-    st.caption('Explore possible outcomes, not predictions or investment recommendations.')
-    amount=st.number_input('Amount you might invest ($)',min_value=0.0,value=500.0,step=50.0)
-    move=st.slider('What if the share price changes?',-80,150,20)
-    result=amount*(1+move/100)
-    x,y,z=st.columns(3)
-    x.metric('Starting amount',fmt(amount))
-    y.metric('Hypothetical ending value',fmt(result))
-    z.metric('Gain or loss',fmt(result-amount),pct(move))
-    st.caption('Excludes taxes, dividends, fees and slippage. A stock can lose most or all of its value.')
+            for article in articles[:6]:
+                with st.container(border=True):
+                    st.write(
+                        "**" + article["title"] + "**"
+                    )
 
-with tabs[4]:
-    st.subheader('Investment research journal')
-    st.caption('Record your thinking before a trade so you can revisit the reasoning later. Stored locally on this computer.')
-    with st.form('journal_form'):
-        jt=st.text_input('Stock',value=ticker).strip().upper()
-        stance=st.selectbox('Your idea',['Research buying','Watch','Review holding','Research selling'])
-        thesis=st.text_area('Why are you considering this? What would change your mind?')
-        submitted=st.form_submit_button('Save research note')
+                    st.caption(
+                        article["tone"]
+                        + " headline wording · "
+                        + article["published"]
+                    )
+
+                    st.link_button(
+                        "Read source",
+                        article["url"],
+                    )
+
+        except Exception:
+            st.info(
+                "News feed temporarily unavailable."
+            )
+
+    # --------------------------------------------------------
+    # OPPORTUNITY RADAR
+    # --------------------------------------------------------
+
+    with radar:
+        st.subheader("Opportunity radar")
+
+        rows = []
+
+        for ticker in WATCHLIST:
+            try:
+                result = analyze(prices(ticker))
+
+                if result:
+                    rows.append({
+                        "Ticker": ticker,
+                        "Close ($)": round(
+                            result["price"], 2
+                        ),
+                        "Positive signs": result["score"],
+                        "Month %": round(
+                            result["month_change"], 2
+                        ),
+                        "Outlook": result["signal"],
+                    })
+
+            except Exception:
+                pass
+
+        if rows:
+            table = pd.DataFrame(rows).sort_values(
+                ["Positive signs", "Month %"],
+                ascending=False,
+            )
+
+            st.dataframe(
+                table,
+                hide_index=True,
+                use_container_width=True,
+            )
+
+            st.download_button(
+                "Export radar",
+                table.to_csv(index=False),
+                "market_radar.csv",
+                "text/csv",
+            )
+
+        else:
+            st.info("Radar data unavailable.")
+
+    # --------------------------------------------------------
+    # STOCK COMPARISON
+    # --------------------------------------------------------
+
+    with compare:
+        st.subheader("Compare stocks")
+
+        a, b = st.columns(2)
+
+        with a:
+            first = st.selectbox(
+                "First",
+                WATCHLIST,
+                key="first",
+            )
+
+        with b:
+            second = st.selectbox(
+                "Second",
+                WATCHLIST,
+                index=min(
+                    1,
+                    len(WATCHLIST) - 1,
+                ),
+                key="second",
+            )
+
+        if first == second:
+            st.info(
+                "Choose two different tickers."
+            )
+
+        else:
+            try:
+                first_prices = prices(first)[
+                    "Close"
+                ].rename(first)
+
+                second_prices = prices(second)[
+                    "Close"
+                ].rename(second)
+
+                aligned = pd.concat(
+                    [first_prices, second_prices],
+                    axis=1,
+                ).dropna().tail(126)
+
+                if len(aligned) > 1:
+                    normalized = (
+                        aligned.div(
+                            aligned.iloc[0]
+                        ) * 100
+                    )
+
+                    fig = go.Figure()
+
+                    for ticker, color in [
+                        (first, GOLD),
+                        (second, GREEN),
+                    ]:
+                        fig.add_trace(go.Scatter(
+                            x=normalized.index,
+                            y=normalized[ticker],
+                            name=ticker,
+                            line=dict(
+                                color=color,
+                                width=3,
+                            ),
+                        ))
+
+                    fig.update_layout(
+                        height=320,
+                        paper_bgcolor=PANEL,
+                        plot_bgcolor=PANEL,
+                        font=dict(
+                            color="#B4C0CF"
+                        ),
+                        margin=dict(
+                            l=5,
+                            r=5,
+                            t=20,
+                            b=5,
+                        ),
+                        xaxis=dict(
+                            showgrid=False
+                        ),
+                        yaxis=dict(
+                            gridcolor="#303A48"
+                        ),
+                    )
+
+                    st.plotly_chart(
+                        fig,
+                        use_container_width=True,
+                        config={
+                            "displayModeBar": False
+                        },
+                    )
+
+                    st.caption(
+                        "Both series are normalized "
+                        "to 100 at the starting date."
+                    )
+
+            except Exception:
+                st.info(
+                    "Comparison data unavailable."
+                )
+
+    # --------------------------------------------------------
+    # INVESTMENT SIMULATOR
+    # --------------------------------------------------------
+
+    with lab:
+        st.subheader(
+            "Investment what-if lab"
+        )
+
+        amount = st.number_input(
+            "Hypothetical investment ($)",
+            min_value=0.0,
+            value=500.0,
+            step=50.0,
+        )
+
+        change = st.slider(
+            "Hypothetical price move (%)",
+            -80,
+            150,
+            10,
+        )
+
+        value = amount * (
+            1 + change / 100
+        )
+
+        a, b = st.columns(2)
+
+        a.metric(
+            "Potential value",
+            f"${value:,.2f}",
+        )
+
+        b.metric(
+            "Gain / loss",
+            f"${value - amount:+,.2f}",
+        )
+
+        st.caption(
+            "Illustrative arithmetic only; "
+            "excludes taxes, dividends and fees."
+        )
+
+    # --------------------------------------------------------
+    # RESEARCH JOURNAL
+    # --------------------------------------------------------
+
+    with journal:
+        st.subheader("Research journal")
+
+        st.caption(
+            "On free Streamlit hosting, "
+            "local notes may disappear after "
+            "a restart. Export regularly."
+        )
+
+        with st.form("journal_form"):
+            stance = st.selectbox(
+                "Research idea",
+                [
+                    "Research buying",
+                    "Watch",
+                    "Review holding",
+                    "Research selling",
+                ],
+            )
+
+            thesis = st.text_area(
+                "Your investment thesis"
+            )
+
+            submitted = st.form_submit_button(
+                "Save note"
+            )
+
         if submitted:
-            if not jt or not thesis.strip():st.warning('Add a ticker and a short explanation.')
+            if thesis.strip():
+                try:
+                    with journal_db() as conn:
+                        conn.execute(
+                            """
+                            INSERT INTO journal
+                            (created, ticker, stance,
+                             price, thesis)
+                            VALUES (?, ?, ?, ?, ?)
+                            """,
+                            (
+                                now_central().isoformat(),
+                                symbol,
+                                stance,
+                                bar["price"],
+                                thesis.strip(),
+                            ),
+                        )
+
+                    st.success("Note saved.")
+
+                except Exception as exc:
+                    st.error(
+                        f"Could not save: {exc}"
+                    )
+
             else:
-                d=prices(jt,'1y');price=float(d.Close.iloc[-1]) if not d.empty else None
-                conn=db()
-                conn.execute('INSERT INTO journal(date,ticker,stance,price,thesis) VALUES(?,?,?,?,?)',(datetime.now(timezone.utc).isoformat(),jt,stance,price,thesis.strip()))
-                conn.commit();conn.close();st.success('Research note saved locally.')
-    conn=db();notes=pd.read_sql_query('SELECT date,ticker,stance,price,thesis FROM journal ORDER BY id DESC LIMIT 100',conn);conn.close()
-    if not notes.empty:
-        st.dataframe(notes,use_container_width=True,hide_index=True)
-        st.download_button('Export journal',notes.to_csv(index=False),'research_journal.csv','text/csv')
-    else:st.info('No saved notes yet.')
+                st.warning(
+                    "Write a note first."
+                )
 
-st.divider()
-st.caption('Educational research tool · 5-minute checks are not a real-time exchange feed · Yahoo Finance and Google News may be delayed or unavailable · Signals are not personalized financial advice.')
+        try:
+            with journal_db() as conn:
+                notes = pd.read_sql_query(
+                    """
+                    SELECT created, ticker, stance,
+                           price, thesis
+                    FROM journal
+                    ORDER BY id DESC
+                    LIMIT 100
+                    """,
+                    conn,
+                )
 
+            if not notes.empty:
+                st.dataframe(
+                    notes,
+                    hide_index=True,
+                    use_container_width=True,
+                )
+
+                st.download_button(
+                    "Export journal",
+                    notes.to_csv(index=False),
+                    "research_journal.csv",
+                    "text/csv",
+                )
+
+        except Exception:
+            st.info(
+                "Journal unavailable."
+            )
+
+
+dashboard()
+
+with st.expander("Email alerts"):
+    st.write(
+        "GitHub Actions checks your watchlist "
+        "separately. Configure thresholds and "
+        "keywords in alert_config.json. "
+        "Emails use repository secrets and "
+        "do not require Streamlit to stay open."
+    )
+
+st.caption(
+    "Market Intelligence · Educational research "
+    "only · No automatic trades or guaranteed signals."
+)

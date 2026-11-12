@@ -1,0 +1,29 @@
+
+{
+  "watchlist": [
+    "NVDA",
+    "CRDO",
+    "VOO",
+    "AAPL",
+    "MSFT",
+    "AMD"
+  ],
+  "alert_on_signal_change": true,
+  "alert_on_news": true,
+  "price_above": {},
+  "price_below": {},
+  "news_keywords": [
+    "earnings",
+    "guidance",
+    "acquisition",
+    "merger",
+    "investigation",
+    "lawsuit",
+    "partnership",
+    "revenue",
+    "forecast",
+    "layoffs",
+    "SEC"
+  ],
+  "max_events_per_email": 15
+}
