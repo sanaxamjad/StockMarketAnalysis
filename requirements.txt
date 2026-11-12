@@ -9,3 +9,4 @@ feedparser>=6.0
 vaderSentiment>=3.3
 transformers>=4.40,<5
 torch>=2.2
+scikit-learn>=1.4,<2
