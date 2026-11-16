@@ -340,9 +340,9 @@
   },
   "signals": {
     "AAPL": "RESEARCH ENTRY",
-    "AMD": "RESEARCH ENTRY",
+    "AMD": "REVIEW RISK",
     "CRDO": "REVIEW RISK",
-    "MSFT": "WATCH",
+    "MSFT": "REVIEW RISK",
     "NVDA": "REVIEW RISK",
     "VOO": "REVIEW RISK"
   }
